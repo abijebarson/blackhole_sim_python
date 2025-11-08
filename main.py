@@ -2,21 +2,23 @@ import numpy as np
 import math
 from PIL import Image
 import os
-from nanba import raytrace_kernel
+from nanba import raywarp_kernel
 
-SagA_rs = 2.0 
+rs = 2.0 # Schwarzschild radius
 
 WIDTH = 800
 HEIGHT = 600
-COMPUTE_WIDTH = 200
-COMPUTE_HEIGHT = 150
+aspect = float(WIDTH) / float(HEIGHT)
 
-cam_pos = np.array([0.0, -2.0, 20.0]) 
+COMPUTE_WIDTH = 400 # Adjust for performance
+COMPUTE_HEIGHT = int(COMPUTE_WIDTH / aspect)
+
+cam_pos = np.array([0.0, -8.0, 40.0]) 
 cam_target = np.array([0.0, 0.0, 0.0])
-fov_y_deg = 60.0
+fov_y_deg = 40.0
 
-disk_r1 = SagA_rs * 2
-disk_r2 = SagA_rs * 5
+disk_r1 = rs * 2
+disk_r2 = rs * 7
 disk_opacity = 0.9 
 
 BACKGROUND_IMAGE_DATA = np.zeros((1, 1, 3), dtype=np.uint8) 
@@ -33,7 +35,7 @@ if __name__ == "__main__":
         BACKGROUND_IMAGE_DATA = np.array(bg_img_pil, dtype=np.uint8)
         BACKGROUND_HEIGHT, BACKGROUND_WIDTH, _ = BACKGROUND_IMAGE_DATA.shape
 
-        disk_img_pil = Image.open("image8.jpg").convert("RGB")
+        disk_img_pil = Image.open("image7.jpg").convert("RGB")
         DISK_IMAGE_DATA = np.array(disk_img_pil, dtype=np.uint8)
         DISK_HEIGHT, DISK_WIDTH, _ = DISK_IMAGE_DATA.shape
         
@@ -61,24 +63,29 @@ if __name__ == "__main__":
         DISK_IMAGE_DATA[:, :, 1] = g_grad[:, np.newaxis]
         DISK_IMAGE_DATA[:, :, 2] = b_grad[:, np.newaxis]
 
-    fwd = cam_target - cam_pos
+    fwd = cam_target - cam_pos #vector 
     fwd_norm = np.linalg.norm(fwd)
-    fwd = fwd / fwd_norm
+    fwd = fwd / fwd_norm #unit vector
+
     world_up = np.array([0.0, 1.0, 0.0])
+    
     right = np.cross(fwd, world_up)
     right_norm = np.linalg.norm(right)
     right = right / right_norm
+
     up = np.cross(right, fwd)
-    aspect = float(WIDTH) / float(HEIGHT)
+
+    # View frustum parameters
+    # aspect = float(WIDTH) / float(HEIGHT) # Moved up
     tan_half_fov = math.tan(math.radians(fov_y_deg)/2)
     
-    compute_pixels = np.zeros((COMPUTE_HEIGHT, COMPUTE_WIDTH, 3), dtype=np.uint8)
+    compute_pixels = np.zeros((COMPUTE_HEIGHT, COMPUTE_WIDTH, 3), dtype=np.uint8) # This will hold the rendered image
     
     print(f"Starting render at {COMPUTE_WIDTH}x{COMPUTE_HEIGHT}...")
     
-    raytrace_kernel(compute_pixels, COMPUTE_WIDTH, COMPUTE_HEIGHT,
+    raywarp_kernel(compute_pixels, COMPUTE_WIDTH, COMPUTE_HEIGHT,
                     cam_pos, right, up, fwd,
-                    tan_half_fov, aspect, disk_r1, disk_r2, SagA_rs,
+                    tan_half_fov, aspect, disk_r1, disk_r2, rs,
                     BACKGROUND_IMAGE_DATA, BACKGROUND_WIDTH, BACKGROUND_HEIGHT,
                     DISK_IMAGE_DATA, DISK_WIDTH, DISK_HEIGHT, disk_opacity)
     

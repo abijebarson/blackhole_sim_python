@@ -1,6 +1,7 @@
-###################################
-##### Numba Helper Functions ######
-###################################
+###############################################
+########### Numba Helper Functions ############
+######## (Nanba in tamil means friend) ########
+###############################################
 
 import numpy as np
 import math
@@ -13,16 +14,16 @@ ESCAPE_R = 1e6
 @jit(nopython=True, fastmath=True, cache=True)
 def geodesic_rhs(r, theta, dr, dtheta, dphi, E, rs):
     f = 1.0 - rs / r
-    dt_dL = E / f
     sin_theta = math.sin(theta)
     cos_theta = math.cos(theta)
+    dt_dL = E / f
     d1_r = dr
     d1_theta = dtheta
     d1_phi = dphi
     d2_r = (
         - (rs / (2.0 * r*r)) * f * dt_dL * dt_dL
         + (rs / (2.0 * r*r * f)) * dr * dr
-        + r * (dtheta*dtheta + sin_theta*sin_theta*dphi*dphi)
+        + r * f * (dtheta*dtheta + sin_theta*sin_theta*dphi*dphi) # Corrected f here
     )
     d2_theta = (
         - 2.0 * dr * dtheta / r 
@@ -36,6 +37,8 @@ def geodesic_rhs(r, theta, dr, dtheta, dphi, E, rs):
 @jit(nopython=True, fastmath=True, cache=True)
 def euler_step(r, theta, phi, dr, dtheta, dphi, E, L, rs, dL):
     # TODO: Also try rk4
+
+    # Actual geodesic equations
     d1_r, d1_theta, d1_phi, d2_r, d2_theta, d2_phi = geodesic_rhs(
         r, theta, dr, dtheta, dphi, E, rs
     )
@@ -68,11 +71,11 @@ def init_ray(pos, dir, rs):
     dr = sin_theta*cos_phi*dx + sin_theta*sin_phi*dy + cos_theta*dz
     dtheta = (cos_theta*cos_phi*dx + cos_theta*sin_phi*dy - sin_theta*dz) / r
     dphi = (-sin_phi*dx + cos_phi*dy) / (r * sin_theta) if sin_theta > 1e-6 else 0.0
-    L = r * r * sin_theta * dphi
+    L = r * r * sin_theta * dphi 
     f = 1.0 - rs / r
     dt_dL_sq = (dr*dr)/f + r*r*(dtheta*dtheta + sin_theta*sin_theta*dphi*dphi)
     if dt_dL_sq < 0.0: dt_dL_sq = 0.0 
-    dt_dL = math.sqrt(dt_dL_sq)
+    dt_dL = math.sqrt(dt_dL_sq/f) # Correction here
     E = f * dt_dL
     return x, y, z, r, theta, phi, dr, dtheta, dphi, E, L
 
@@ -126,15 +129,19 @@ def sample_disk_texture(hit_x, hit_z, disk_data, disk_width, disk_height, disk_r
 
 
 @jit(nopython=True, fastmath=True, cache=True)
-def raytrace_pixel(px, py, compute_width, compute_height, 
+def raywarp_pixel(px, py, compute_width, compute_height, 
                    cam_pos, cam_right, cam_up, cam_forward,
                    tan_half_fov, aspect, disk_r1, disk_r2, rs,
                    background_image_data, background_width, background_height,
                    disk_image_data, disk_width, disk_height, disk_opacity):
     
-    u_ndc = (2.0 * (px + 0.5) / compute_width - 1.0) * aspect * tan_half_fov
+    u_ndc = (2.0 * (px + 0.5) / compute_width - 1.0) * aspect * tan_half_fov # normalized device coords (ndcs)
     v_ndc = (1.0 - 2.0 * (py + 0.5) / compute_height) * tan_half_fov
     
+    # Compute the ray direction in world space (NOTE: manually inlined for numba performance)
+    # dir_vec = (u_ndc * cam_right) - (v_ndc * cam_up) + cam_forward
+    # dir_vec = dir_vec / np.linalg.norm(dir_vec)
+
     dir_x = u_ndc * cam_right[0] - v_ndc * cam_up[0] + cam_forward[0]
     dir_y = u_ndc * cam_right[1] - v_ndc * cam_up[1] + cam_forward[1]
     dir_z = u_ndc * cam_right[2] - v_ndc * cam_up[2] + cam_forward[2]
@@ -146,8 +153,10 @@ def raytrace_pixel(px, py, compute_width, compute_height,
 
     dir_vec = np.array([dir_vec_x, dir_vec_y, dir_vec_z])
 
-    (x, y, z, r, theta, phi, 
-     dr, dtheta, dphi, E, L) = init_ray(cam_pos, dir_vec, rs)
+    (x, y, z, 
+     r, theta, phi, 
+     dr, dtheta, dphi, 
+     E, L) = init_ray(cam_pos, dir_vec, rs)
     
     prev_y = y
     
@@ -180,6 +189,7 @@ def raytrace_pixel(px, py, compute_width, compute_height,
             
         prev_y = y
         if r > ESCAPE_R:
+            # print('something escaped')
             break
             
     if hit_black_hole:
@@ -206,16 +216,20 @@ def raytrace_pixel(px, py, compute_width, compute_height,
         final_b += b_col * remaining_light
         return (final_r, final_g, final_b)
 
+# My definitions:
+# Raytrace - when the ray is traced analytically in straight lines until it hits something
+# Raymarch - when the ray is traced in small steps, sampling along the way in straight lines
+# Raywarp - when the ray is traced in small steps, but a geodesic for two points is no longer a straight line, so the rays warp around spacetime
 
 @jit(nopython=True, parallel=True, fastmath=True, cache=True)
-def raytrace_kernel(pixels, compute_width, compute_height,
+def raywarp_kernel(pixels, compute_width, compute_height,
                     cam_pos, cam_right, cam_up, cam_forward,
                     tan_half_fov, aspect, disk_r1, disk_r2, rs,
                     background_image_data, background_width, background_height,
                     disk_image_data, disk_width, disk_height, disk_opacity):
     for py in prange(compute_height):
         for px in range(compute_width):
-            r, g, b = raytrace_pixel(px, py, compute_width, compute_height,
+            r, g, b = raywarp_pixel(px, py, compute_width, compute_height,
                                      cam_pos, cam_right, cam_up, cam_forward,
                                      tan_half_fov, aspect, disk_r1, disk_r2, rs,
                                      background_image_data, background_width, background_height,
