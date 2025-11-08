@@ -8,8 +8,12 @@ Sample output:
 <!-- ![not fancier blackhole](black_hole.png) -->
 ![fancier blackhole](black_hole_1.png)
 
+## My definitions:
 
+**Ray Trace** - Tracing the ray bouncing, scattering on objects in straight lines, because light wants to travel the shortest distance, to cover a distance in the shortest distance possible light has to travel straight, and the rays are traced analytically.
 
-...
+**Ray March** - Same as ray tracing but the rays are traced on small short steps, numerically.
 
-I might rewrite the README.md later.
+**Ray Warp** - Earlier I lied. Light should trace the shortest distance, yes. But sometimes the shortest distance might not be straight. To calculate the shortest path, comes geodesic equations, using which the rays are traced in short steps. This warps the light around objects in spacetime and the procedure to trace these rays, I call it **ray warping**. 
+
+`nanba.py` is not a typo. 'Nanba' in the language tamil, means 'Friend'. So, numba helper functions = nanba.py.
